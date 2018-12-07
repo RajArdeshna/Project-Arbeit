@@ -6,9 +6,12 @@
   
  
   
-  double Rb1[N] , Rb2[N] , Rb3[3] ;
-  double Rba1[N] ,Rba2[N] ,Rba3[3] ;
-  double c1[N] ,c2[N] ,c3[3] ;
+  double Rb1[N] , Rb2[N] , Rb3[N] ;
+  double d1[N],d2[N],d3[N];
+  double Rho[N];
+  int select_filter;
+  double Rba1[N] , Rba2[N] , Rba3[N] ;
+  double c1[N] ,c2[N] ,c3[N] ;
   
   double A_trans[3*N][N];
   double A_transC[N];
@@ -18,7 +21,7 @@
   double a1[N] , a2[N] , a3[N]; //Position Vectors of Revolute Joint wrt Main Frame
   double b1[N] , b2[N] , b3[N]; //Position Vectors of Spherical Joint wrt Manipulator Frame
   double Plat_Pos[N];
-  double Base_radius , Manipulator_radius;
+  double Base_radius=120 , Manipulator_radius=78;
   double alpha , beta , gamma  ;
   double a_A ,b_A ,g_A;
  
@@ -31,15 +34,15 @@ class DirectKinematics
 
   DirectKinematics()
   {
-    Base_radius = 130; Manipulator_radius = 70;
+    //Base_radius = 130; Manipulator_radius = 70;
     
-    a1[0] = Base_radius;      a1[1] = 0;                          a1[2] = 0;
-    a2[0] = -(Base_radius/2); a2[1] = Base_radius*((sqrt(3))/2);  a2[2] = 0;
-    a3[0] = -(Base_radius/2);  a3[1] = -Base_radius*((sqrt(3))/2); a3[2] = 0; 
+    a1[0] = Base_radius;      a1[1] = 0;                          a1[2] = 8;
+    a2[0] = -(Base_radius/2); a2[1] = Base_radius*((sqrt(3))/2);  a2[2] = 8;
+    a3[0] = -(Base_radius/2);  a3[1] = -Base_radius*((sqrt(3))/2); a3[2] = 8; 
 
-    b1[0] = Manipulator_radius;       b1[1]= 0;                                 b1[2]=0;
-    b2[0] = -(Manipulator_radius/2);  b2[1]= Manipulator_radius*((sqrt(3))/2);  b2[2]=0;
-    b3[0] =-(Manipulator_radius/2);    b3[1]= -Manipulator_radius*((sqrt(3))/2); b3[2]=0;
+    b1[0] = Manipulator_radius;       b1[1]= 0;                                 b1[2]=-10.4;
+    b2[0] = -(Manipulator_radius/2);  b2[1]= Manipulator_radius*((sqrt(3))/2);  b2[2]=-10.4;
+    b3[0] =-(Manipulator_radius/2);    b3[1]= -Manipulator_radius*((sqrt(3))/2); b3[2]=-10.4;
     
   };
   
@@ -68,7 +71,7 @@ class DirectKinematics
   // Matrix.Print((double*)v1_tilda, N, N, "v1_tilda");
   // Matrix.Print((double*)v2_tilda, N, N, "v2_tilda");
   // Matrix.Print((double*)v3_tilda, N, N, "v3_tilda");
-  //Matrix.Print((double*)A, 3*N, N, "A");
+//  Matrix.Print((double*)A, 3*N, N, "A");
     
   };
 
@@ -79,10 +82,10 @@ class DirectKinematics
     g_A = PI/180*gamma_A;
 
         
-  R[0][0] = cos(b_A)*cos(g_A) ;                                 R[0][1] = -cos(b_A)*sin(g_A);                           R[0][2] = sin(b_A) ;
-  R[1][0] = cos(a_A)*sin(g_A)+sin(a_A)*sin(b_A)*cos(g_A) ;      R[1][1] = cos(a_A)*cos(g_A)-sin(a_A)*sin(b_A)*sin(g_A); R[1][2] = -sin(a_A)*cos(b_A) ;
-  R[2][0] = sin(a_A)*sin(g_A)-cos(a_A)*sin(b_A)*cos(g_A)  ;     R[2][1] = sin(a_A)*cos(g_A)+cos(a_A)*sin(b_A)*sin(g_A); R[2][2] = cos(a_A)*cos(b_A) ;
- 
+ R[0][0] = cos(b_A)*cos(g_A) ;                             R[0][1] = -cos(b_A)*sin(g_A);                          R[0][2] = sin(b_A) ;
+ R[1][0] = cos(a_A)*sin(g_A)+sin(a_A)*sin(b_A)*cos(g_A) ;  R[1][1] = cos(a_A)*cos(g_A)-sin(a_A)*sin(b_A)*sin(g_A);R[1][2] = -sin(a_A)*cos(b_A) ;
+ R[2][0] = sin(a_A)*sin(g_A)-cos(a_A)*sin(b_A)*cos(g_A)  ; R[2][1] = sin(a_A)*cos(g_A)+cos(a_A)*sin(b_A)*sin(g_A);R[2][2] = cos(a_A)*cos(b_A) ;
+
     
   };
 
@@ -91,12 +94,21 @@ class DirectKinematics
     alpha = roll ; beta = pitch;
     gamma = -atan2(sin(alpha*PI/180)*sin(beta*PI/180),cos(alpha*PI/180)+cos(beta*PI/180))*180/PI;
     //Serial.print(gamma);
+    //Serial.print("Alpha");
+   // Serial.print("\t");Serial.print(alpha);Serial.print("\t");
+//   // Serial.print("Beta");
+   // Serial.print("\t");Serial.print(beta);Serial.print("\t");
+//  //  Serial.print("Gamma");
+ //  Serial.print("\t");Serial.print(gamma);Serial.print("\t");
     ROT(alpha , beta , gamma);
-   //Matrix.Print((double*)R, N, N, "Rotation Matrix");
+ // Matrix.Print((double*)R, N, N, "Rotation Matrix");
+
   };
 
-  void constructMatrixC()
+  void constructMatrixC(int filter)
   {
+     select_filter = filter;
+     
      Matrix.Multiply((double*)R, (double*)b1, N, N, 1, (double*)Rb1);
      Matrix.Multiply((double*)R, (double*)b2, N, N, 1, (double*)Rb2);
      Matrix.Multiply((double*)R, (double*)b3, N, N, 1, (double*)Rb3);
@@ -110,6 +122,21 @@ class DirectKinematics
      Matrix.Multiply((double*)v2_tilda, (double*)Rba2, N, N, 1, (double*)c2);
      Matrix.Multiply((double*)v3_tilda, (double*)Rba3, N, N, 1, (double*)c3);
 
+     if (select_filter == 1)
+     {
+     C[0] = -c1[0];  
+     C[1] = -c1[1];
+     C[2] = -c1[2];
+     C[3] = -c2[0];
+     C[4] = -c2[1];
+     C[5] = -c2[2];
+     C[6] = -c3[0];
+     C[7] = -c3[1];
+     C[8] = -c3[2];
+     }
+
+if(select_filter == 3)
+{
      C[0] = c1[0];  
      C[1] = c1[1];
      C[2] = c1[2];
@@ -119,12 +146,12 @@ class DirectKinematics
      C[6] = c3[0];
      C[7] = c3[1];
      C[8] = c3[2];
- 
-    //Matrix.Print((double*)C, 3*N, 1, "Matrix C");
+}
+   // Matrix.Print((double*)C, 3*N, 1, "Matrix C");
      
   };
 
-  void getPlatformPosition()
+    void getPlatformPosition()
   {
    // Matrix.Print((double*)A, 3*N, 3, "A");
     Matrix.Transpose((double*)A, 3*N, 3, (double*) A_trans);
@@ -136,11 +163,32 @@ class DirectKinematics
     Matrix.Invert((double*)A_transA , N );
    // Matrix.Print((double*)A_transA, N, N, "A_transA_inv");
     Matrix.Multiply((double*)A_transA, (double*)A_transC, N, N, 1, (double*)Plat_Pos);
-
-   Serial.print(Plat_Pos[0]);Serial.print("\t");Serial.print(Plat_Pos[1]);Serial.print("\t");Serial.print(Plat_Pos[2]); Serial.println();
-    
+ // Serial.println("Platform pose");
+   Serial.print(Plat_Pos[0],3);Serial.print("\t");Serial.print(Plat_Pos[1],3);Serial.print("\t");Serial.print(Plat_Pos[2],3); Serial.print("\t");
+   Serial.print("\t");Serial.print(alpha,3);Serial.print("\t");
+   Serial.print("\t");Serial.print(beta,3);Serial.print("\t");
+   Serial.print("\t");Serial.print(gamma,3);Serial.print("\t"); //Serial.println();
+   //  RR[9] = Plat_Pos[0];  RR[10] = Plat_Pos[1];   RR[11] = Plat_Pos[2]; */
     
   };
+
+ void calculateInverseKinematics()
+ {
+   for(int i=0;i<3;i++)
+  {
+  d1[i] = Plat_Pos[i] + Rb1[i] - a1[i];
+  d2[i] = Plat_Pos[i] + Rb2[i] - a2[i];
+  d3[i] = Plat_Pos[i] + Rb3[i] - a3[i];
+  }
+
+   Rho[0] = sqrt(d1[0]*d1[0] + d1[1]*d1[1] + d1[2]*d1[2]);
+   Rho[1] = sqrt(d2[0]*d2[0] + d2[1]*d2[1] + d2[2]*d2[2]);
+   Rho[2] = sqrt(d3[0]*d3[0] + d3[1]*d3[1] + d3[2]*d3[2]); 
+ // Serial.println("Readings from Inverse Kinematics");
+ Serial.print(Rho[0],3);Serial.print('\t');Serial.print(Rho[1],3);Serial.print('\t');Serial.print(Rho[2],3);Serial.print("\t");
+
+  
+ };
 
   private :
   double v1_tilda[N][N];
@@ -151,9 +199,11 @@ class DirectKinematics
   double dk_v3[N];
   double R[N][N];
   double A[3*N][N];
+ 
     
  
 };
+
 
 
 

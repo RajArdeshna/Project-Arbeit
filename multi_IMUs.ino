@@ -11,7 +11,6 @@
 #include "Kalman.h"
 #include "direction_vector.h"
 #include "DirectKinematics.h"
-//#include "comp.h"
 #include <MatrixMath.h>
 #define TCAADDR 0x70
 #define RESTRICT_PITCH
@@ -27,19 +26,26 @@ direction_vector v2;
 direction_vector v3;
 
 
-int MPU1 = 0;
-int MPU2 = 1;
-int MPU3 = 2;
-int MPU4 = 4;
-int MPU5 = 7;
 
+int MPU1 = 0;
+int MPU2 = 5;
+int MPU3 = 2;
+int MPU4 = 3;
+int MPU5 = 4;
+
+int Fb_M1 = A1;
+int Fb_M2 = A2;
+int Fb_M3 = A3;
+double Fb1_val=0,Fb2_val=0,Fb3_val=0;
+double len1=0,len2=0,len3=0;
+double voltage2mm =0.09775171 ;//(100/1023)
+int a,i;
 
 const int MPU = 0x68; // The code for the mpu-6050 is from Arduino User JohnChi
 int16_t AcX, AcY, AcZ, GyX, GyY, GyZ;
 
 int16_t AX, AY, AZ;
 int16_t GX, GY, GZ;
-int16_t MX, MY, MZ;
 
 double accX = 0, accY= 0, accZ= 0;
 double gyroX= 0, gyroY= 0, gyroZ= 0;
@@ -51,17 +57,20 @@ double compAngleX, compAngleY; // Calculated angle using a complementary filter
 double kalAngleX, kalAngleY; // Calculated angle using a Kalman filter
 
 //const int totalIMU = 5;
-const int totalIMU = 10; 
+const int totalIMU = 5; 
 
 double ax[totalIMU] ,ay[totalIMU] ,az[totalIMU];
 double gx[totalIMU] , gy[totalIMU] , gz[totalIMU];
 double mx[totalIMU] , my[totalIMU] , mz[totalIMU];
 double ROLL[totalIMU] , PITCH[totalIMU];
-double vector1[3];
-double vector2[3];
-double vector3[3];
-double EC1[4] ,EC2[4],EC3[4] ,EC4[4];
-//double ErrorCovarianceY[4];
+double ROLL_c[totalIMU] , PITCH_c[totalIMU];
+double ROLL_raw[totalIMU] , PITCH_raw[totalIMU];
+double gyroXrate_comp[totalIMU] ,  gyroYrate_comp[totalIMU];
+
+
+double vector1[3],vector1_r[3];
+double vector2[3],vector2_r[3];
+double vector3[3],vector3_r[3];
 double dt;
 float deltat = 0.0f;
 
@@ -74,80 +83,160 @@ const byte addressB = 5;  // A1
 const byte addressC = 4; // high-order bit A2
 
 
-
 void setup()
 {
+   Serial.begin(115200);
+   Wire.begin();
+ pinMode(Fb_M1,INPUT);
+ pinMode(Fb_M2,INPUT);
+ pinMode(Fb_M3,INPUT);  
   pinMode(addressA, OUTPUT);  //Lower Bit-6
   pinMode(addressB, OUTPUT);  //         -5
   pinMode(addressC, OUTPUT);  //Higher Bit-4
-  Wire.begin(); // wake up I2C bus
+   // wake up I2C bus
   Wire.beginTransmission(MPU);
   Wire.write(0x6B);  // PWR_MGMT_1 register
   Wire.write(0);     // set to zero (wakes up the MPU-6050)
   Wire.endTransmission(true);
-  Serial.begin(9600);
-
+ROLL_c[1] = ROLL[1];
+ROLL_c[2] = ROLL[2];
   #ifdef RESTRICT_PITCH // Eq. 25 and 26
   restrictedPitch(accX , accY, accZ);
-  //comp.restrictedPitch(accX , accY, accZ);
+  
 #else // Eq. 28 and 29
   unrestrictedPitch(accX , accY , accZ);
- // comp.unrestrictedPitch(accX , accY , accZ);
+ 
 #endif
   setStartingAngle(roll,pitch);
- // comp.setStartingAngle(roll,pitch);
+  
+  timer = micros();
+
  }
 
 
 void loop()
 {
-  
-
-    dt = (double)(micros() - timer) / 1000000; // Calculate delta time
+    dt = (double)(micros()-timer) / 1000000; // Calculate delta time
     timer = micros();
+    
+     tcaselect(MPU1); read_imusKal(1); readImuComp(1);
+     tcaselect(MPU2); read_imusKal(2);// readImuComp(2);
+     tcaselect(MPU3); read_imusKal(3); //readImuComp(3);
+     tcaselect(MPU4); read_imusKal(4); //readImuComp(4);
+     tcaselect(MPU5); read_imusKal(5); //readImuComp(5);
+     
+//Calculate Using Kalman Filter
+ /*   v1.getDirectionVector(ROLL[1],PITCH[1],0); v1.GlobalVector(0,90,180);v1.anotherRotation(0,0,0);v1.finalRotation(-ROLL[5],-PITCH[5],0);
+     v2.getDirectionVector(ROLL[2],PITCH[2],0);v2.GlobalVector(0,90,180);v2.anotherRotation(0,0,120);v2.finalRotation(-ROLL[5],-PITCH[5],0);
+     v3.getDirectionVector(ROLL[3],PITCH[3],0); v3.GlobalVector(0,90,180);v3.anotherRotation(0,0,-120);v3.finalRotation(-ROLL[5],-PITCH[5],0);
+     
+  /*   Serial.print("Kal");Serial.print(ROLL[1]);Serial.print("\t");Serial.print(PITCH[1]);Serial.print("\t");
+     Serial.print(ROLL[2]);Serial.print("\t");Serial.print(PITCH[2]);Serial.print("\t");
+     Serial.print(ROLL[3]);Serial.print("\t");Serial.print(PITCH[3]);Serial.print("\t");
+     Serial.print(ROLL[4]);Serial.print("\t");Serial.print(PITCH[4]);Serial.print("\t");
+     Serial.print(ROLL[5]);Serial.print("\t");Serial.print(PITCH[5]);Serial.print("\t");Serial.println(); 
+  
+   DK.RotationMatrix(ROLL[4]-ROLL[5],PITCH[4]-PITCH[5]); 
+     
+    double *vector1 = v1.GetGlobalVector();
+    double *vector2 = v2.GetGlobalVector();
+    double *vector3 = v3.GetGlobalVector();
 
-        tcaselect(MPU1); 
-        read_imusKal(1);// read_imusComp(1); 
-        v1.getDirectionVector(ROLL[1],PITCH[1],0);v1.GlobalVector(0,90,180);v1.anotherRotation(0,0,0);
-        double *vector1 = v1.GetGlobalVector();
-        
-        tcaselect(MPU2); read_imusKal(2); //read_imusComp(2); 
-        v2.getDirectionVector(ROLL[2],PITCH[2],0);v2.GlobalVector(0,90,180);v2.anotherRotation(0,0,120);
-        double *vector2 = v2.GetGlobalVector();
-        
-        tcaselect(MPU3); read_imusKal(3); //read_imusComp(3); 
-       v3.getDirectionVector(ROLL[3],PITCH[3],0); v3.GlobalVector(0,90,180);v3.anotherRotation(0,0,-120);
-        double *vector3 = v3.GetGlobalVector();
+  /*  Serial.println("KAL");
+       Matrix.Print((double*)vector1, 3, 1, "Printing Vector1"); delay(500);
+       Matrix.Print((double*)vector2, 3, 1, "Printing Vector2"); delay(500);
+       Matrix.Print((double*)vector3, 3, 1, "Printing Vector3"); delay(500); 
+
+  
+    DK.passVectors(vector1 , vector2 , vector3,3);
+    DK.constructMatrixC(1);
+    DK.getPlatformPosition();
+    DK.calculateInverseKinematics();
+    getActuatorLengths(); 
+      
+   //  Serial.print(ROLL[4]-ROLL[5]);Serial.print("\t");Serial.print(PITCH[4]-PITCH[5]);Serial.println();
+*/
+
+//Calculate Using Complementary Filter
+     v1.getDirectionVector(ROLL_c[1],PITCH_c[1],0); v1.GlobalVector(0,90,180);v1.anotherRotation(0,0,0);v1.finalRotation(180-ROLL[5],-PITCH[5],0);
+     v2.getDirectionVector(ROLL_c[2],PITCH_c[2],0);v2.GlobalVector(0,90,180);v2.anotherRotation(0,0,120);v2.finalRotation(180-ROLL[5],-PITCH[5],0);
+     v3.getDirectionVector(ROLL_c[3],PITCH_c[3],0); v3.GlobalVector(0,90,180);v3.anotherRotation(0,0,-120);v3.finalRotation(180-ROLL[5],-PITCH[5],0);
+
+ /*   Serial.print("COMP");Serial.print("\t");Serial.print(ROLL_c[1]);Serial.print("\t");Serial.print(PITCH_c[1]);Serial.print("\t");
+    Serial.print(ROLL_c[2]);Serial.print("\t");Serial.print(PITCH_c[2]);Serial.print("\t");
+    Serial.print(ROLL_c[3]);Serial.print("\t");Serial.print(PITCH_c[3]);Serial.print("\t");Serial.println();
+  /*   DK.RotationMatrix(ROLL_c[4]-ROLL_c[5],PITCH_c[4]-PITCH_c[5]);
+     
+    double *vector1 = v1.GetGlobalVector();
+    double *vector2 = v2.GetGlobalVector();
+    double *vector3 = v3.GetGlobalVector();
+    DK.passVectors(vector1 , vector2 , vector3,3);
+    DK.constructMatrixC(1);
+    DK.getPlatformPosition();
+    DK.calculateInverseKinematics();
+    getActuatorLengths(); 
        
-        tcaselect(MPU4); read_imusKal(4); 
-        tcaselect(MPU5); read_imusKal(5); 
-        
-        DK.passVectors(vector1 , vector2 , vector3,3); //Create Matrix A 
-       DK.RotationMatrix(ROLL[4] , PITCH[4]); //Construct Rotation Matrix for Manipulator IMU
-        DK.constructMatrixC();
-        DK.getPlatformPosition();
+  */   
+     
+//Calculate Using Accelerometer Raw Values
+
+   /*  v1.getDirectionVector(ROLL_raw[1],PITCH_raw[1],0); v1.GlobalVector(0,90,180);v1.anotherRotation(0,0,0);v1.finalRotation(-ROLL[5],-PITCH[5],0);
+     v2.getDirectionVector(ROLL_raw[2],PITCH_raw[2],0);v2.GlobalVector(0,90,180);v2.anotherRotation(0,0,120);v2.finalRotation(-ROLL[5],-PITCH[5],0);
+     v3.getDirectionVector(ROLL_raw[3],PITCH_raw[3],0); v3.GlobalVector(0,90,180);v3.anotherRotation(0,0,-120);v3.finalRotation(-ROLL[5],-PITCH[5],0);
+
+ /*   Serial.print("RAW");Serial.print("\t");Serial.print(ROLL_raw[1]);Serial.print("\t");Serial.print(PITCH_raw[1]);Serial.print("\t");
+    Serial.print(ROLL_raw[2]);Serial.print("\t");Serial.print(PITCH_raw[2]);Serial.print("\t");
+    Serial.print(ROLL_raw[3]);Serial.print("\t");Serial.print(PITCH_raw[3]);Serial.print("\t");
+    Serial.print(ROLL_raw[4]);Serial.print("\t");Serial.print(PITCH_raw[4]);Serial.print("\t");
+    Serial.print(ROLL_raw[5]);Serial.print("\t");Serial.print(PITCH_raw[5]);Serial.print("\t");Serial.println();
+    
+     DK.RotationMatrix(ROLL_raw[4]-ROLL_raw[5],PITCH_raw[4]-PITCH_raw[5]);
+
+    double *vector1_r = v1.GetGlobalVector();
+    double *vector2_r = v2.GetGlobalVector();
+    double *vector3_r = v3.GetGlobalVector();
+
+     /*  Serial.println("RAW");
+       Matrix.Print((double*)vector1_r, 3, 1, "Printing Vector1"); delay(500);
+       Matrix.Print((double*)vector2_r, 3, 1, "Printing Vector2"); delay(500);
+       Matrix.Print((double*)vector3_r, 3, 1, "Printing Vector3"); delay(500); 
+
+    
+    DK.passVectors(vector1 , vector2 , vector3,3);
+    DK.constructMatrixC(1);
+    DK.getPlatformPosition();
+    DK.calculateInverseKinematics();
+    getActuatorLengths(); 
+    
+       
+    /*  Matrix.Print((double*)vector1, 3, 1, "Printing Vector1"); delay(500);
+       Matrix.Print((double*)vector2, 3, 1, "Printing Vector2"); delay(500);
+       Matrix.Print((double*)vector3, 3, 1, "Printing Vector3"); delay(500); */
+
+    //  Serial.print(ROLL[4]); Serial.print("\t");Serial.print(PITCH[4]);Serial.print("\t");
+    // Serial.print(ROLL[5]); Serial.print("\t");Serial.print(PITCH[5]);Serial.print("\t");Serial.println();
+   //   Serial.print(ROLL[4]-ROLL[5]); Serial.print("\t");Serial.print(PITCH[4]-PITCH[5]);Serial.println();
+    
         
       
-//Matrix.Print((double*)vector1, 3, 1, "Printing Vector1"); delay(500);
-//Matrix.Print((double*)vector2, 3, 1, "Printing Vector2"); delay(500);
-//Matrix.Print((double*)vector3, 3, 1, "Printing Vector3"); delay(500);
-
-// Serial.print("roll"); Serial.print(ROLL[4]); Serial.print("\t");
-//  Serial.print("\t");
-//  Serial.print("pitch");Serial.print(PITCH[4]); Serial.print("\t");
-//  Serial.print("\r\n"); 
-//Serial.print("Acc"); 
-//Serial.print(ax[1]);Serial.print("\t");Serial.print(ay[1]);Serial.print("\t");Serial.print(az[1]);Serial.print("\t");//Serial.println();delay(1000);
-//Serial.print("Acc"); 
-//Serial.print(ax[2]);Serial.print("\t");Serial.print(ay[2]);Serial.print("\t");Serial.print(az[2]);Serial.print("\t");//Serial.println();delay(1000);
-//Serial.print("Acc"); 
-//Serial.print(ax[3]);Serial.print("\t");Serial.print(ay[3]);Serial.print("\t");Serial.print(az[3]);Serial.print("\t");//Serial.println();delay(1000);
-//Serial.print("Acc"); 
-//Serial.print(ax[4]);Serial.print("\t");Serial.print(ay[4]);Serial.print("\t");Serial.print(az[4]);
-//Serial.print(ax[5]);Serial.print("\t");Serial.print(ay[5]);Serial.print("\t");Serial.print(az[5]);
-//Serial.println();delay(1000);
+       
+/*Serial.print("Kalman"); Serial.print("\t");Serial.print(ROLL[1]); Serial.print("\t");Serial.print(PITCH[1]); Serial.print("\t");
+Serial.print("Comp"); Serial.print("\t");Serial.print(ROLL_c[1]); Serial.print("\t");Serial.print(PITCH_c[1]); Serial.print("\t");
+Serial.print("RAW"); Serial.print("\t");Serial.print(ROLL_raw[1]); Serial.print("\t");Serial.print(PITCH_raw[1]); Serial.println();
+*/
+/*Serial.print("Acc"); 
+Serial.print(ax[1]);Serial.print("\t");Serial.print(ay[1]);Serial.print("\t");Serial.print(az[1]);Serial.print("\t");//Serial.println();delay(1000);
+Serial.print("Acc"); 
+Serial.print(ax[2]);Serial.print("\t");Serial.print(ay[2]);Serial.print("\t");Serial.print(az[2]);Serial.print("\t");//Serial.println();delay(1000);
+Serial.print("Acc"); 
+Serial.print(ax[3]);Serial.print("\t");Serial.print(ay[3]);Serial.print("\t");Serial.print(az[3]);Serial.print("\t");//Serial.println();delay(1000);
+Serial.print("Acc"); 
+Serial.print(ax[4]);Serial.print("\t");Serial.print(ay[4]);Serial.print("\t");Serial.print(az[4]);
+Serial.print("Acc"); 
+Serial.print(ax[5]);Serial.print("\t");Serial.print(ay[5]);Serial.print("\t");Serial.print(az[5]);
+Serial.println();delay(1000); */
   //Serial.print("Gyro"); Serial.print(gx[5]);Serial.print(gy[5]);Serial.print(gz[5]); Serial.println();delay(1000); 
-  
+ // Serial.print("Execution Time");Serial.print("\t");Serial.print(dt);Serial.println();
   
 
 }
@@ -155,8 +244,6 @@ void loop()
 void read_imusKal(int a)
 {
   int i = a;
-  //ax[i] = 0; ay[i] = 0; az[i] = 0;
-//Serial.print(ax[i]);Serial.print("\t");Serial.print(ay[i]);Serial.print("\t");Serial.print(az[i]);Serial.print("\t");//Serial.println();delay(1000);
   
   accelGyroMag.initialize();
   accelGyroMag.getMotion6(&AX, &AY, &AZ, &GX, &GY, &GZ);
@@ -164,17 +251,21 @@ void read_imusKal(int a)
   Wire.write(0x3B);  // starting with register 0x3B (ACCEL_XOUT_H)
   Wire.endTransmission(false);
   Wire.requestFrom(MPU, 14, true); // request a total of 14 registers
-  //accelGyroMag.getMotion9(&AX, &AY, &AZ, &GX, &GY, &GZ, &MX, &MY, &MZ);
-  //delay(10);
+  
   ax[i] = (double) AX;  ay[i] = (double) AY;  az[i] = (double) AZ;
   gx[i]= (double) GX;  gy[i] = (double) GY;  gz[i] = (double) GZ;
   accX = ax[i] ; accY = ay[i] ; accZ = az[i] ;
   gyroX = gx[i]; gyroY = gy[i]; gyroZ = gz[i]; 
- // Serial.print("Acc");
-//Serial.print(ax[i]);Serial.print("\t");Serial.print(ay[i]);Serial.print("\t");Serial.print(az[i]);Serial.print("\t");//Serial.println();delay(1000);
+
+  //Calculate Roll and Pitch using Raw Accelerometer Values
+
  
+
+
+   
+    
  
-#ifdef RESTRICT_PITCH // Eq. 25 and 26
+ #ifdef RESTRICT_PITCH // Eq. 25 and 26
 restrictedPitch(accX , accY , accZ);
 #else // Eq. 28 and 29
 unrestrictedPitch(accX , accY , accZ);
@@ -192,12 +283,12 @@ convertGyroRate( gyroXrate , gyroYrate);
  
  ROLL[i] = roll; PITCH[i] = pitch;
  
-  /*Serial.print("roll"); Serial.print(roll); Serial.print("\t");
-  Serial.print("\t");
-  Serial.print("pitch");Serial.print(pitch); Serial.print("\t");
-  Serial.print("\r\n");
-  delay(2);
- */
+ ROLL_c[i] = compAngleX; PITCH_c[i] = compAngleY ;
+
+ ROLL_raw[i] = atan(ay[i]/sqrt(ax[i] * ax[i] + az[i] * az[i])) * RAD_TO_DEG;
+ PITCH_raw[i] = atan(-ax[i] / sqrt(ay[i] * ay[i] + az[i] * az[i])) * RAD_TO_DEG;
+ 
+ 
   }
 
 
@@ -206,16 +297,29 @@ convertGyroRate( gyroXrate , gyroYrate);
   double restrictedPitch(double x ,double y, double z)
   {
    accX = x; accY = y; accZ= z;
-   roll  = atan2(accY, accZ) * RAD_TO_DEG;
-   pitch = atan(-accX / sqrt(accY * accY + accZ * accZ)) * RAD_TO_DEG;
+   
+  //Roll RANGE FROM -180 TO +180
+  /* roll  = atan2(accY, accZ) * RAD_TO_DEG;
+   pitch = atan(-accX / sqrt(accY * accY + accZ * accZ)) * RAD_TO_DEG; */
+
+//ROLL RANGE FROM -90 TO +90
+   roll = atan(accY / sqrt(accX * accX + accZ * accZ)) * RAD_TO_DEG;
+   pitch = atan(-accX / sqrt(accY * accY + accZ * accZ)) * RAD_TO_DEG; 
    return roll , pitch;
    }
 
 double unrestrictedPitch(double a, double b, double c)
 {
   accX = a; accY = b; accZ= c;
+  //PITCH RANGE FROM -180 TO 180
+ /*
   double roll  = atan(accY / sqrt(accX * accX + accZ * accZ)) * RAD_TO_DEG;
-  double pitch = atan2(-accX, accZ) * RAD_TO_DEG;
+  double pitch = atan2(-accX, accZ) * RAD_TO_DEG; 
+  */
+  //PITCH RANGE FROM -90 TO +90
+  double roll  = atan(accY / sqrt(accX * accX + accZ * accZ)) * RAD_TO_DEG;
+  double pitch = atan(-accX / sqrt(accY * accY + accZ * accZ)) * RAD_TO_DEG; 
+  
   return roll , pitch;
   
   }
@@ -229,7 +333,7 @@ double unrestrictedPitch(double a, double b, double c)
   gyroYangle = pitch;
   compAngleX = roll;
   compAngleY = pitch;
-  timer = micros();
+  
 }
 
  double gyroReset(double x_angle , double y_angle)
@@ -258,7 +362,6 @@ double unrestrictedPitch(double a, double b, double c)
   if (abs(kalAngleX) > 90)
   {
     gyroYrate = -gyroYrate; // Invert rate, so it fits the restriced accelerometer reading
-    //double *ErrorCovarianceY = kalmanY.getErrorCovariance();
     kalAngleY = kalmanY.getAngle(pitch, gyroYrate, dt /*ErrorCovarianceY*/);
   }
   }
@@ -293,9 +396,10 @@ double calculateGyroAngle(double xRate , double yRate , double r , double p , do
 
   compAngleX = 0.93 * (compAngleX + gyroXrate * dt) + 0.07 * roll; // Calculate the angle using a Complimentary filter
   compAngleY = 0.93 * (compAngleY + gyroYrate * dt) + 0.07 * pitch;
-
+//Serial.print(compAngleX) ; Serial.print("\t"); Serial.print(compAngleY); Serial.println();
   // Reset the gyro angle when it has drifted too much
     gyroReset(gyroXangle , gyroYangle);
+    return compAngleX , compAngleY;
   }
 
   double convertGyroRate(double xRate , double yRate)
@@ -314,5 +418,33 @@ void tcaselect(uint8_t i)
   //Serial.print(i);
 }
 
+void getActuatorLengths()
+{
+    int dead_length = 183;//(168 - Length Of Unactuated Actuator + 15- Connection between Actuator and Joint)
+   Fb1_val = analogRead(Fb_M1);
+   len1 = Fb1_val*(voltage2mm) + dead_length;
+   Fb2_val = analogRead(Fb_M2); 
+    len2 = Fb2_val*(voltage2mm) + dead_length;
+    Fb3_val = analogRead(Fb_M3); 
+    len3 = Fb3_val*(voltage2mm) + dead_length;
+  // Serial.println("Printing Lengths from Actuator Reading");
+    // Serial.print(Fb1_val);Serial.print('\t');Serial.print(Fb2_val);Serial.print('\t');Serial.print(Fb3_val);Serial.println();
+    Serial.print(len1,3);Serial.print('\t');Serial.print(len2,3);Serial.print('\t');Serial.print(len3,3);Serial.println();
+}
+
+double readImuComp(int a)
+{
+ Serial.print("Initial ROll_c"); Serial.print("\t");Serial.print(ROLL_c[i]);Serial.println();
+  i = a;
+   gyroXrate_comp[i] = gx[i] / 131.0; // Convert to deg/s
+   gyroYrate_comp[i] = gy[i] / 131.0; // Convert to deg/s
+  Serial.print("Gyro_rate"); Serial.print(gyroXrate_comp[i]); Serial.print("\t");Serial.print(gyroYrate_comp[i]);Serial.println();
+  Serial.print("dt");Serial.print(dt);Serial.println();
+ 
+  ROLL_c[i] = 0.93 * (ROLL_c[i] + gyroXrate_comp[i] * dt) + (0.07 * ROLL[i]); // Calculate the angle using a Complimentary filter
+  PITCH_c[i] = 0.93 * (PITCH_c[i] + gyroYrate_comp[i] * dt) + (0.07 * PITCH[i]);
+Serial.print("ROLL");Serial.print(ROLL[i]);Serial.print("\t");Serial.print(ROLL_c[i]);Serial.println();
+return ROLL_c[i] , PITCH_c[i];
+}
 
 

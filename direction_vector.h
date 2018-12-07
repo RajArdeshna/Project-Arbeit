@@ -3,31 +3,15 @@
 #define  _direction_vector_h
 #define N (3)
 
-//double v_tilda[N][N];
-double D[N][1]; //Direction Vector to define local frame
-//double AB[N][N];
-double ABC[N][N];
-double dir_vec[N][1]; //Global Direction Vector
-double local_vec[N][1]; 
+
+
 
 
 
 class direction_vector
 {
   public:
-  direction_vector()
-  {
-   /* A[N][N]=0;
-    B[N][N]=0; 
-    C[N][N]=0;
-    D[1][N]=0;
-    AB[N][N]=0;
-    ABC[N][N]=0;
-    ROT[1][N]=0; //Direction Vector
-    norm=0;
-   v1_tilda[N][N]=0;
-    */
-  };
+  
 
 void getDirectionVector(double r , double p , double y )
 {
@@ -54,9 +38,9 @@ void getDirectionVector(double r , double p , double y )
   ABC[1][0] = cos(roll)*sin(yaw)+sin(roll)*sin(pitch)*cos(yaw) ;      ABC[1][1] = cos(roll)*cos(yaw)-sin(roll)*sin(pitch)*sin(yaw); ABC[1][2] = -sin(roll)*cos(pitch) ;
   ABC[2][0] = sin(roll)*sin(yaw)-cos(roll)*sin(pitch)*cos(yaw)  ;     ABC[2][1] = sin(roll)*cos(yaw)+cos(roll)*sin(pitch)*sin(yaw); ABC[2][2] = cos(roll)*cos(pitch) ;
  
-  D[0][0] = 0;
-  D[1][0] = 0;
-  D[2][0] = 1;
+  D[0] = 0;
+  D[1] = 0;
+  D[2] = 1;
 //Matrix multiplication
 // Rot_matrix = Rot_matrix(roll)*Rot_matrix(pitch)*Rot_matrix(yaw)
 // Direction_Vec = Rot_matrix*dir_vec(i.e Z axis)
@@ -72,7 +56,7 @@ void getDirectionVector(double r , double p , double y )
     //Matrix.Print((double*)local_vec, N, 1, "Local Vector");
     getDirectionVector(x,y,z);
     Matrix.Multiply((double*)ABC, (double*)local_vec, N, N, 1, (double*)dir_vec);
-   // Matrix.Print((double*)dir_vec, N, 1, "Direction Vector");
+   //Matrix.Print((double*)dir_vec, N, 1, "Direction Vector");
     
   };
 
@@ -86,9 +70,18 @@ void getDirectionVector(double r , double p , double y )
     
    };
 
+
+   void finalRotation(double a, double b, double c)
+   {
+    x=a ;y=b; z=c;
+    getDirectionVector(x,y,z);
+    Matrix.Multiply((double*)ABC,(double*)global_dir , N,N,1,(double*)final_vec);
+  //  Matrix.Print((double*)final_vec, N, 1, "Final");
+   }
+
    double* GetGlobalVector()
    {
-    return *global_dir;
+    return *final_vec;
    };
 private :
 //double A[N][N]; //Rotation about X axis
@@ -96,10 +89,13 @@ private :
 //double C[N][N]; //Rotation about Z axis (Identity Matrix)
 
 double roll,pitch,yaw,x,y,z;
-double norm;
-double norm_global;
 double global_dir[N][1];
-  
+double final_vec[N][1];
+double D[N];  
+ //Direction Vector to define local frame
+double ABC[N][N];
+double dir_vec[N]; //Global Direction Vector
+double local_vec[N]; 
 
 
 
